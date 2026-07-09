@@ -153,6 +153,17 @@
     mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
     touch-action: none;
   }
+  /* rotated 90° for reading while the phone is held landscape */
+  #prompter.rot90, #prompter.rot270 {
+    width: 100vh;
+    height: 56vw;
+    left: 50%;
+    right: auto;
+    top: 50% !important;
+  }
+  #prompter.rot90 { transform: translate(-50%, -50%) rotate(90deg); }
+  #prompter.rot270 { transform: translate(-50%, -50%) rotate(-90deg); }
+  #prompterScreen.rot #dragHandle, #prompterScreen.rot #guideLine { display: none; }
   #dragHandle {
     position: absolute;
     top: calc(60px + var(--safe-top) - 14px);
@@ -390,6 +401,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     <div id="timer">00:00</div>
     <div style="display:flex; gap:8px;">
       <button class="icon-btn" id="voiceBtn" title="Voice-paced scrolling">🎤</button>
+      <button class="icon-btn" id="rotBtn" title="Rotate text for landscape">↻</button>
       <button class="icon-btn" id="flipBtn" title="Flip camera">🔄</button>
     </div>
   </div>
@@ -640,8 +652,32 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     if (!isNaN(f)) setPrompterTop(f * window.innerHeight, false);
   }
 
+  // ---------- text rotation for landscape filming ----------
+  const ROT_KEY = 'livescript.rotation';
+  let rotMode = parseInt(localStorage.getItem(ROT_KEY), 10) || 0; // 0, 90 or 270
+
+  function applyRotation() {
+    const p = $('prompter');
+    p.classList.toggle('rot90', rotMode === 90);
+    p.classList.toggle('rot270', rotMode === 270);
+    screens.prompter.classList.toggle('rot', rotMode !== 0);
+    $('rotBtn').classList.toggle('active-toggle', rotMode !== 0);
+    localStorage.setItem(ROT_KEY, String(rotMode));
+    // start the first line inside the visible band, whatever its depth
+    $('prompterText').style.paddingTop = Math.round(p.clientHeight * 0.7) + 'px';
+  }
+
+  $('rotBtn').onclick = () => {
+    rotMode = rotMode === 0 ? 90 : rotMode === 90 ? 270 : 0;
+    applyRotation();
+    toast(rotMode === 0 ? 'Portrait text'
+      : rotMode === 90 ? 'Landscape text — phone turned to the left'
+      : 'Landscape text — phone turned to the right');
+  };
+
   function makeDraggable(el) {
     el.addEventListener('pointerdown', e => {
+      if (rotMode !== 0) return; // rotated panel is centered, not draggable
       dragInfo = { y: e.clientY, top: $('prompter').offsetTop, moved: false };
       try { el.setPointerCapture(e.pointerId); } catch {}
     });
@@ -853,6 +889,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     setScrolling(false);
     show('prompter');
     applyPrompterPos();
+    applyRotation();
     requestWakeLock();
     await startCamera();
   };

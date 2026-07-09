@@ -4,7 +4,7 @@
   "description": "Read your script while looking at the camera. Teleprompter + video recorder.",
   "start_url": ".",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#0d0d0f",
   "theme_color": "#0d0d0f",
   "icons": [
