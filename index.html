@@ -437,6 +437,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     wordIdx: 0,
     recognition: null,
     wakeLock: null,
+    startDraw: null,
   };
 
   // ---------- screens ----------
@@ -519,11 +520,19 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   };
 
   // ---------- camera ----------
+  const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
+
   async function startCamera() {
     stopCamera();
+    const portrait = isPortrait();
     try {
       state.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: state.facing, width: { ideal: 1080 }, height: { ideal: 1920 } },
+        video: {
+          facingMode: state.facing,
+          width: { ideal: portrait ? 1080 : 1920 },
+          height: { ideal: portrait ? 1920 : 1080 },
+          aspectRatio: { ideal: portrait ? 9 / 16 : 16 / 9 },
+        },
         audio: true,
       });
       const cam = $('camera');
@@ -546,6 +555,13 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     state.facing = state.facing === 'user' ? 'environment' : 'user';
     startCamera();
   };
+
+  // re-open the camera with matching constraints when the device rotates
+  window.matchMedia('(orientation: portrait)').addEventListener('change', () => {
+    if (screens.prompter.classList.contains('active') && !state.recording && state.stream) {
+      startCamera();
+    }
+  });
 
   // ---------- prompter scroll ----------
   function resetScroll() {
@@ -710,6 +726,42 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     return candidates.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
   }
 
+  // Record through a canvas cropped to the on-screen aspect, so the saved
+  // video matches the preview instead of the raw (usually 16:9) sensor feed.
+  function buildRecordStream() {
+    const video = $('camera');
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh || !HTMLCanvasElement.prototype.captureStream) return state.stream;
+
+    const portrait = isPortrait();
+    const aspect = portrait ? 9 / 16 : 16 / 9;
+    let cw = vw, ch = vh;
+    if (vw / vh > aspect) cw = vh * aspect; else ch = vw / aspect;
+    const sx = (vw - cw) / 2, sy = (vh - ch) / 2;
+
+    // if the feed already matches the target aspect, record it directly
+    if (Math.abs(vw / vh - aspect) < 0.02) return state.stream;
+
+    const maxW = portrait ? 1080 : 1920, maxH = portrait ? 1920 : 1080;
+    const scale = Math.min(1, maxW / cw, maxH / ch);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(cw * scale / 2) * 2;
+    canvas.height = Math.round(ch * scale / 2) * 2;
+    const ctx = canvas.getContext('2d');
+
+    const draw = () => {
+      ctx.drawImage(video, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+      if (!state.recording) return;
+      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(draw);
+      else requestAnimationFrame(draw);
+    };
+    state.startDraw = draw;
+
+    const cs = canvas.captureStream(30);
+    state.stream.getAudioTracks().forEach(t => cs.addTrack(t));
+    return cs;
+  }
+
   function startTimer() {
     state.recordStart = Date.now();
     $('timer').classList.add('recording');
@@ -741,12 +793,16 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     if (!state.stream) { toast('No camera — cannot record'); return; }
     await countdown(3);
     state.chunks = [];
+    state.startDraw = null;
+    const recStream = buildRecordStream();
     const mime = pickMime();
+    const opts = { videoBitsPerSecond: 8_000_000 };
+    if (mime) opts.mimeType = mime;
     try {
-      state.recorder = new MediaRecorder(state.stream, mime ? { mimeType: mime } : undefined);
+      state.recorder = new MediaRecorder(recStream, opts);
     } catch {
-      toast('Recording not supported in this browser');
-      return;
+      try { state.recorder = new MediaRecorder(recStream); }
+      catch { toast('Recording not supported in this browser'); return; }
     }
     state.recorder.ondataavailable = e => { if (e.data.size) state.chunks.push(e.data); };
     state.recorder.onstop = () => {
@@ -761,6 +817,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     };
     state.recorder.start();
     state.recording = true;
+    if (state.startDraw) state.startDraw();
     $('recordBtn').classList.add('recording');
     startTimer();
     resetScroll();
