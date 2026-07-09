@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LiveScript">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>LiveScript — Teleprompter Camera</title>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --surface: #1a1a1f;
+    --surface-2: #26262e;
+    --text: #f5f5f7;
+    --text-dim: #9a9aa5;
+    --accent: #ff9f43;
+    --accent-2: #ffb964;
+    --danger: #ff4757;
+    --radius: 16px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  button { font-family: inherit; border: none; cursor: pointer; background: none; color: inherit; }
+
+  .screen { position: absolute; inset: 0; display: none; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* ============ EDITOR SCREEN ============ */
+  #editorScreen {
+    padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+    gap: 14px;
+  }
+  .editor-header { display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent); }
+  .tagline { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+
+  #scriptTitle {
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+    outline: none;
+    width: 100%;
+  }
+  #scriptTitle:focus { border-color: var(--accent); }
+
+  #scriptInput {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    border-radius: var(--radius);
+    padding: 16px;
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    width: 100%;
+  }
+  #scriptInput:focus { border-color: var(--accent); }
+
+  .editor-meta { display: flex; justify-content: space-between; color: var(--text-dim); font-size: 13px; padding: 0 4px; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #1a1205;
+    font-size: 17px;
+    font-weight: 700;
+    padding: 16px;
+    border-radius: var(--radius);
+    width: 100%;
+    transition: transform 0.1s, opacity 0.2s;
+  }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { opacity: 0.4; cursor: default; }
+
+  .btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    color: var(--text-dim);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 14px;
+    border-radius: 12px;
+  }
+
+  /* saved scripts */
+  #savedList { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  #savedList:empty { display: none; }
+  .saved-chip {
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--surface-2);
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    max-width: 160px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .saved-chip.selected { border-color: var(--accent); color: var(--text); }
+
+  /* ============ PROMPTER SCREEN ============ */
+  #prompterScreen { background: #000; }
+
+  #cameraWrap { position: absolute; inset: 0; overflow: hidden; }
+  #camera {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror selfie view */
+  }
+  #camera.rear { transform: none; }
+
+  #camError {
+    position: absolute; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    text-align: center;
+    color: var(--text-dim);
+    padding: 40px;
+    font-size: 15px;
+    line-height: 1.6;
+    background: #111;
+  }
+
+  /* scrolling script overlay */
+  #prompter {
+    position: absolute;
+    top: calc(60px + var(--safe-top));
+    left: 0; right: 0;
+    height: 42%;
+    overflow: hidden;
+    background: linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55));
+    -webkit-mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+    mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+  }
+  #prompterText {
+    padding: 30vh 24px 40vh;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.5;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+    white-space: pre-wrap;
+    will-change: transform;
+  }
+  #prompterText.mirrored { transform: scaleX(-1); }
+  #prompterText .w.current { color: var(--accent); }
+
+  /* reading guide line */
+  #guideLine {
+    position: absolute;
+    top: calc(60px + var(--safe-top) + 12%);
+    left: 10px;
+    width: 14px; height: 14px;
+    border-left: 3px solid var(--accent);
+    border-bottom: 3px solid var(--accent);
+    transform: rotate(45deg);
+    opacity: 0.9;
+    pointer-events: none;
+  }
+
+  /* top bar */
+  .prompter-top {
+    position: absolute;
+    top: var(--safe-top);
+    left: 0; right: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    z-index: 10;
+  }
+  .icon-btn {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: rgba(20,20,25,0.6);
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    color: #fff;
+  }
+  #timer {
+    background: rgba(20,20,25,0.6);
+    backdrop-filter: blur(8px);
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  #timer.recording { background: var(--danger); }
+
+  /* bottom controls */
+  .prompter-bottom {
+    position: absolute;
+    bottom: calc(16px + var(--safe-bottom));
+    left: 0; right: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    z-index: 10;
+    padding: 0 20px;
+  }
+  .sliders {
+    background: rgba(20,20,25,0.6);
+    backdrop-filter: blur(8px);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sliders.open { display: flex; }
+  .slider-row { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-dim); }
+  .slider-row label { width: 52px; flex-shrink: 0; }
+  input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 24px;
+  }
+
+  .controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ctrl-btn {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: rgba(20,20,25,0.6);
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    color: #fff;
+  }
+  .ctrl-btn.active-toggle, .icon-btn.active-toggle { background: var(--accent); color: #1a1205; }
+
+  #recordBtn {
+    width: 76px; height: 76px;
+    border-radius: 50%;
+    border: 4px solid #fff;
+    background: transparent;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+  }
+  #recordBtn .inner {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: var(--danger);
+    transition: border-radius 0.25s, width 0.25s, height 0.25s;
+  }
+  #recordBtn.recording .inner {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+  }
+
+  /* countdown */
+  #countdown {
+    position: absolute; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    font-size: 120px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    z-index: 20;
+    background: rgba(0,0,0,0.35);
+  }
+
+  /* ============ REVIEW SCREEN ============ */
+  #reviewScreen {
+    background: #000;
+    padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+    gap: 14px;
+  }
+  #playback {
+    flex: 1;
+    width: 100%;
+    border-radius: var(--radius);
+    background: #111;
+    object-fit: contain;
+    min-height: 0;
+  }
+  .review-actions { display: flex; gap: 10px; }
+  .review-actions .btn-primary { flex: 2; }
+  .review-actions .btn-ghost { flex: 1; padding: 16px; font-size: 15px; border-radius: var(--radius); text-align: center; }
+
+  /* toast */
+  #toast {
+    position: absolute;
+    bottom: calc(110px + var(--safe-bottom));
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: var(--surface-2);
+    color: var(--text);
+    padding: 10px 18px;
+    border-radius: 20px;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none;
+    z-index: 50;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ============ SCRIPT EDITOR ============ -->
+<div id="editorScreen" class="screen active">
+  <div class="editor-header">
+    <div>
+      <div class="logo">Live<span>Script</span></div>
+      <div class="tagline">Read your script while looking at the camera</div>
+    </div>
+    <button class="btn-ghost" id="newScriptBtn">+ New</button>
+  </div>
+
+  <div id="savedList"></div>
+
+  <input id="scriptTitle" type="text" placeholder="Script title" maxlength="60">
+
+  <textarea id="scriptInput" placeholder="Paste or type your script here…
+
+Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
+
+  <div class="editor-meta">
+    <span id="wordCount">0 words</span>
+    <span id="readTime">~0:00 read time</span>
+  </div>
+
+  <button class="btn-primary" id="startBtn" disabled>🎥 Open Teleprompter</button>
+</div>
+
+<!-- ============ TELEPROMPTER / CAMERA ============ -->
+<div id="prompterScreen" class="screen">
+  <div id="cameraWrap">
+    <video id="camera" autoplay playsinline muted></video>
+    <div id="camError">Camera unavailable.<br>Check browser permissions and reload.<br><br>The prompter still works — text scrolls over a black background.</div>
+  </div>
+
+  <div id="prompter"><div id="prompterText"></div></div>
+  <div id="guideLine"></div>
+
+  <div class="prompter-top">
+    <button class="icon-btn" id="backBtn" title="Back to editor">✕</button>
+    <div id="timer">00:00</div>
+    <div style="display:flex; gap:8px;">
+      <button class="icon-btn" id="voiceBtn" title="Voice-paced scrolling">🎤</button>
+      <button class="icon-btn" id="flipBtn" title="Flip camera">🔄</button>
+    </div>
+  </div>
+
+  <div class="prompter-bottom">
+    <div class="sliders" id="sliders">
+      <div class="slider-row">
+        <label>Speed</label>
+        <input type="range" id="speedSlider" min="10" max="120" value="45">
+        <span id="speedVal">45</span>
+      </div>
+      <div class="slider-row">
+        <label>Text size</label>
+        <input type="range" id="sizeSlider" min="18" max="48" value="28">
+        <span id="sizeVal">28</span>
+      </div>
+    </div>
+    <div class="controls-row">
+      <button class="ctrl-btn" id="settingsBtn" title="Speed & size">⚙️</button>
+      <button class="ctrl-btn" id="restartBtn" title="Restart script">⏮</button>
+      <button id="recordBtn" title="Record"><div class="inner"></div></button>
+      <button class="ctrl-btn" id="playPauseBtn" title="Play / pause scroll">▶️</button>
+      <button class="ctrl-btn" id="mirrorBtn" title="Mirror text">🪞</button>
+    </div>
+  </div>
+
+  <div id="countdown"></div>
+</div>
+
+<!-- ============ REVIEW ============ -->
+<div id="reviewScreen" class="screen">
+  <video id="playback" controls playsinline></video>
+  <div class="review-actions">
+    <button class="btn-ghost" id="discardBtn">Discard</button>
+    <button class="btn-ghost" id="shareBtn">📤 Share</button>
+    <button class="btn-primary" id="downloadBtn">⬇️ Save Video</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+
+  // ---------- state ----------
+  const state = {
+    stream: null,
+    facing: 'user',
+    recorder: null,
+    chunks: [],
+    recording: false,
+    recordStart: 0,
+    timerInterval: null,
+    scrolling: false,
+    scrollY: 0,
+    speed: 45,        // px per second
+    lastFrame: 0,
+    rafId: null,
+    videoURL: null,
+    blob: null,
+    currentScriptId: null,
+    voiceMode: false,
+    voiceTargetY: 0,
+    words: [],
+    wordEls: [],
+    wordIdx: 0,
+    recognition: null,
+    wakeLock: null,
+  };
+
+  // ---------- screens ----------
+  const screens = { editor: $('editorScreen'), prompter: $('prompterScreen'), review: $('reviewScreen') };
+  function show(name) {
+    Object.values(screens).forEach(s => s.classList.remove('active'));
+    screens[name].classList.add('active');
+  }
+
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ---------- script storage ----------
+  const STORE_KEY = 'livescript.scripts';
+  function loadScripts() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+    catch { return []; }
+  }
+  function saveScripts(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+
+  function persistCurrent() {
+    const title = $('scriptTitle').value.trim();
+    const text = $('scriptInput').value;
+    if (!text.trim()) return;
+    let list = loadScripts();
+    if (state.currentScriptId) {
+      const s = list.find(x => x.id === state.currentScriptId);
+      if (s) { s.title = title || 'Untitled'; s.text = text; s.updated = Date.now(); }
+    } else {
+      state.currentScriptId = Date.now().toString(36);
+      list.unshift({ id: state.currentScriptId, title: title || 'Untitled', text, updated: Date.now() });
+    }
+    list = list.slice(0, 20);
+    saveScripts(list);
+    renderSaved();
+  }
+
+  function renderSaved() {
+    const list = loadScripts();
+    const wrap = $('savedList');
+    wrap.innerHTML = '';
+    list.forEach(s => {
+      const b = document.createElement('button');
+      b.className = 'saved-chip' + (s.id === state.currentScriptId ? ' selected' : '');
+      b.textContent = s.title;
+      b.onclick = () => {
+        state.currentScriptId = s.id;
+        $('scriptTitle').value = s.title;
+        $('scriptInput').value = s.text;
+        updateMeta();
+        renderSaved();
+      };
+      wrap.appendChild(b);
+    });
+  }
+
+  // ---------- editor meta ----------
+  function updateMeta() {
+    const text = $('scriptInput').value;
+    const words = (text.trim().match(/\S+/g) || []).length;
+    $('wordCount').textContent = words + ' words';
+    const secs = Math.round(words / 2.4); // ~145 wpm speaking pace
+    $('readTime').textContent = `~${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} read time`;
+    $('startBtn').disabled = words === 0;
+  }
+  $('scriptInput').addEventListener('input', updateMeta);
+
+  $('newScriptBtn').onclick = () => {
+    persistCurrent();
+    state.currentScriptId = null;
+    $('scriptTitle').value = '';
+    $('scriptInput').value = '';
+    updateMeta();
+    renderSaved();
+  };
+
+  // ---------- camera ----------
+  async function startCamera() {
+    stopCamera();
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: state.facing, width: { ideal: 1080 }, height: { ideal: 1920 } },
+        audio: true,
+      });
+      const cam = $('camera');
+      cam.srcObject = state.stream;
+      cam.classList.toggle('rear', state.facing === 'environment');
+      $('camError').style.display = 'none';
+    } catch (e) {
+      $('camError').style.display = 'flex';
+    }
+  }
+  function stopCamera() {
+    if (state.stream) {
+      state.stream.getTracks().forEach(t => t.stop());
+      state.stream = null;
+    }
+  }
+
+  $('flipBtn').onclick = () => {
+    if (state.recording) { toast('Stop recording first'); return; }
+    state.facing = state.facing === 'user' ? 'environment' : 'user';
+    startCamera();
+  };
+
+  // ---------- prompter scroll ----------
+  function resetScroll() {
+    state.scrollY = 0;
+    state.voiceTargetY = 0;
+    state.wordIdx = 0;
+    const prev = $('prompterText').querySelector('.w.current');
+    if (prev) prev.classList.remove('current');
+    $('prompterText').style.transform = state.mirrorX('translateY(0px)');
+  }
+  state.mirrorX = t => $('prompterText').classList.contains('mirrored') ? t + ' scaleX(-1)' : t;
+
+  function scrollLoop(ts) {
+    if (!state.scrolling) return;
+    if (state.lastFrame) {
+      const dt = (ts - state.lastFrame) / 1000;
+      if (state.voiceMode) {
+        // ease toward the position of the last spoken word
+        state.scrollY += (state.voiceTargetY - state.scrollY) * Math.min(1, dt * 4);
+      } else {
+        state.scrollY += state.speed * dt;
+      }
+      const el = $('prompterText');
+      const max = el.scrollHeight - $('prompter').clientHeight * 0.15;
+      if (state.scrollY >= max) {
+        state.scrollY = max;
+        if (!state.voiceMode) setScrolling(false);
+      }
+      el.style.transform = state.mirrorX(`translateY(${-state.scrollY}px)`);
+    }
+    state.lastFrame = ts;
+    state.rafId = requestAnimationFrame(scrollLoop);
+  }
+
+  function setScrolling(on) {
+    state.scrolling = on;
+    state.lastFrame = 0;
+    $('playPauseBtn').textContent = on ? '⏸' : '▶️';
+    if (on) state.rafId = requestAnimationFrame(scrollLoop);
+    else if (state.rafId) cancelAnimationFrame(state.rafId);
+  }
+
+  $('playPauseBtn').onclick = () => setScrolling(!state.scrolling);
+  $('restartBtn').onclick = () => { resetScroll(); toast('Back to top'); };
+
+  // tap prompter to play/pause too
+  $('prompter').addEventListener('click', () => setScrolling(!state.scrolling));
+
+  // ---------- sliders ----------
+  $('settingsBtn').onclick = () => $('sliders').classList.toggle('open');
+  $('speedSlider').oninput = e => {
+    state.speed = +e.target.value;
+    $('speedVal').textContent = e.target.value;
+  };
+  $('sizeSlider').oninput = e => {
+    $('prompterText').style.fontSize = e.target.value + 'px';
+    $('sizeVal').textContent = e.target.value;
+  };
+
+  $('mirrorBtn').onclick = () => {
+    const el = $('prompterText');
+    el.classList.toggle('mirrored');
+    $('mirrorBtn').classList.toggle('active-toggle');
+    el.style.transform = state.mirrorX(`translateY(${-state.scrollY}px)`);
+    toast(el.classList.contains('mirrored') ? 'Mirror on (for glass teleprompters)' : 'Mirror off');
+  };
+
+  // ---------- voice-paced scrolling ----------
+  const normWord = w => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
+
+  function renderScript(text) {
+    const el = $('prompterText');
+    el.innerHTML = '';
+    state.words = [];
+    state.wordEls = [];
+    state.wordIdx = 0;
+    text.split(/(\s+)/).forEach(tok => {
+      if (/^\s*$/.test(tok)) {
+        el.appendChild(document.createTextNode(tok));
+      } else {
+        const span = document.createElement('span');
+        span.className = 'w';
+        span.textContent = tok;
+        el.appendChild(span);
+        state.words.push(normWord(tok));
+        state.wordEls.push(span);
+      }
+    });
+  }
+
+  function updateVoiceTarget() {
+    const el = state.wordEls[Math.max(0, state.wordIdx - 1)];
+    if (!el) return;
+    const prev = $('prompterText').querySelector('.w.current');
+    if (prev) prev.classList.remove('current');
+    el.classList.add('current');
+    const target = el.offsetTop - $('prompter').clientHeight * 0.12;
+    if (target > state.voiceTargetY) state.voiceTargetY = target;
+  }
+
+  function onSpeechResult(e) {
+    let heard = [];
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      heard = heard.concat(e.results[i][0].transcript.split(/\s+/));
+    }
+    heard = heard.map(normWord).filter(Boolean).slice(-12);
+    for (const hw of heard) {
+      const limit = Math.min(state.words.length, state.wordIdx + 18);
+      for (let j = state.wordIdx; j < limit; j++) {
+        if (state.words[j] === hw) { state.wordIdx = j + 1; break; }
+      }
+    }
+    updateVoiceTarget();
+  }
+
+  function startVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast('Voice tracking not supported in this browser'); return false; }
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = navigator.language || 'en-US';
+    rec.onresult = onSpeechResult;
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        toast('Mic blocked — voice tracking off');
+        stopVoice();
+      }
+    };
+    rec.onend = () => {
+      // keep listening while voice mode is on
+      if (state.voiceMode) { try { rec.start(); } catch {} }
+    };
+    try { rec.start(); } catch { toast('Could not start voice tracking'); return false; }
+    state.recognition = rec;
+    state.voiceMode = true;
+    state.voiceTargetY = state.scrollY;
+    $('voiceBtn').classList.add('active-toggle');
+    setScrolling(true);
+    toast('Voice tracking on — scroll follows your speech');
+    return true;
+  }
+
+  function stopVoice() {
+    state.voiceMode = false;
+    if (state.recognition) {
+      state.recognition.onend = null;
+      try { state.recognition.stop(); } catch {}
+      state.recognition = null;
+    }
+    $('voiceBtn').classList.remove('active-toggle');
+    const prev = $('prompterText').querySelector('.w.current');
+    if (prev) prev.classList.remove('current');
+    setScrolling(false);
+  }
+
+  $('voiceBtn').onclick = () => state.voiceMode ? stopVoice() : startVoice();
+
+  // ---------- recording ----------
+  function pickMime() {
+    const candidates = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+    return candidates.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+  }
+
+  function startTimer() {
+    state.recordStart = Date.now();
+    $('timer').classList.add('recording');
+    state.timerInterval = setInterval(() => {
+      const s = Math.floor((Date.now() - state.recordStart) / 1000);
+      $('timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    }, 250);
+  }
+  function stopTimer() {
+    clearInterval(state.timerInterval);
+    $('timer').classList.remove('recording');
+    $('timer').textContent = '00:00';
+  }
+
+  function countdown(n) {
+    return new Promise(res => {
+      const el = $('countdown');
+      el.style.display = 'flex';
+      const tick = () => {
+        if (n === 0) { el.style.display = 'none'; res(); return; }
+        el.textContent = n--;
+        setTimeout(tick, 1000);
+      };
+      tick();
+    });
+  }
+
+  async function startRecording() {
+    if (!state.stream) { toast('No camera — cannot record'); return; }
+    await countdown(3);
+    state.chunks = [];
+    const mime = pickMime();
+    try {
+      state.recorder = new MediaRecorder(state.stream, mime ? { mimeType: mime } : undefined);
+    } catch {
+      toast('Recording not supported in this browser');
+      return;
+    }
+    state.recorder.ondataavailable = e => { if (e.data.size) state.chunks.push(e.data); };
+    state.recorder.onstop = () => {
+      const blob = new Blob(state.chunks, { type: state.recorder.mimeType });
+      if (state.videoURL) URL.revokeObjectURL(state.videoURL);
+      state.blob = blob;
+      state.videoURL = URL.createObjectURL(blob);
+      state.blobExt = state.recorder.mimeType.includes('mp4') ? 'mp4' : 'webm';
+      $('playback').src = state.videoURL;
+      setScrolling(false);
+      show('review');
+    };
+    state.recorder.start();
+    state.recording = true;
+    $('recordBtn').classList.add('recording');
+    startTimer();
+    resetScroll();
+    setScrolling(true);
+  }
+
+  function stopRecording() {
+    if (state.recorder && state.recorder.state !== 'inactive') state.recorder.stop();
+    state.recording = false;
+    $('recordBtn').classList.remove('recording');
+    stopTimer();
+  }
+
+  $('recordBtn').onclick = () => state.recording ? stopRecording() : startRecording();
+
+  // ---------- navigation ----------
+  $('startBtn').onclick = async () => {
+    persistCurrent();
+    renderScript($('scriptInput').value);
+    resetScroll();
+    setScrolling(false);
+    show('prompter');
+    requestWakeLock();
+    await startCamera();
+  };
+
+  $('backBtn').onclick = () => {
+    if (state.recording) stopRecording();
+    stopVoice();
+    setScrolling(false);
+    stopCamera();
+    releaseWakeLock();
+    show('editor');
+  };
+
+  $('discardBtn').onclick = () => {
+    $('playback').pause();
+    show('prompter');
+    startCamera();
+  };
+
+  function videoFileName() {
+    const title = ($('scriptTitle').value.trim() || 'livescript').replace(/[^\w-]+/g, '_');
+    return `${title}_${new Date().toISOString().slice(0, 10)}.${state.blobExt || 'webm'}`;
+  }
+
+  $('downloadBtn').onclick = () => {
+    const a = document.createElement('a');
+    a.href = state.videoURL;
+    a.download = videoFileName();
+    a.click();
+    toast('Saving video…');
+  };
+
+  $('shareBtn').onclick = async () => {
+    if (!state.blob) return;
+    const file = new File([state.blob], videoFileName(), { type: state.blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'LiveScript video' });
+      } catch (e) {
+        if (e.name !== 'AbortError') toast('Share failed — try Save Video');
+      }
+    } else {
+      toast('Sharing not supported here — use Save Video');
+    }
+  };
+
+  // ---------- wake lock (keep screen on while prompting) ----------
+  async function requestWakeLock() {
+    try { state.wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  function releaseWakeLock() {
+    if (state.wakeLock) { state.wakeLock.release().catch(() => {}); state.wakeLock = null; }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && screens.prompter.classList.contains('active')) requestWakeLock();
+  });
+
+  // keyboard shortcuts (desktop)
+  document.addEventListener('keydown', e => {
+    if (!screens.prompter.classList.contains('active')) return;
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') { e.preventDefault(); setScrolling(!state.scrolling); }
+    if (e.code === 'ArrowUp') { state.speed = Math.min(120, state.speed + 5); $('speedSlider').value = state.speed; $('speedVal').textContent = state.speed; }
+    if (e.code === 'ArrowDown') { state.speed = Math.max(10, state.speed - 5); $('speedSlider').value = state.speed; $('speedVal').textContent = state.speed; }
+    if (e.code === 'KeyR') $('restartBtn').click();
+  });
+
+  // ---------- init ----------
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  renderSaved();
+  const last = loadScripts()[0];
+  if (last) {
+    state.currentScriptId = last.id;
+    $('scriptTitle').value = last.title;
+    $('scriptInput').value = last.text;
+  }
+  updateMeta();
+  renderSaved();
+})();
+</script>
+</body>
+</html>

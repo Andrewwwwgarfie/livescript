@@ -1,0 +1,15 @@
+{
+  "name": "LiveScript — Teleprompter Camera",
+  "short_name": "LiveScript",
+  "description": "Read your script while looking at the camera. Teleprompter + video recorder.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0d0f",
+  "theme_color": "#0d0d0f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
