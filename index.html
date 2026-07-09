@@ -163,6 +163,14 @@
   }
   #prompter.rot90 { transform: translate(-50%, -50%) rotate(90deg); }
   #prompter.rot270 { transform: translate(-50%, -50%) rotate(-90deg); }
+  /* landscape = ticker: one continuous line flowing sideways, fade at the ends */
+  #prompter.rot90, #prompter.rot270 {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  }
+  #prompter.rot90 #prompterText, #prompter.rot270 #prompterText {
+    white-space: nowrap;
+  }
   #prompterScreen.rot #dragHandle, #prompterScreen.rot #guideLine { display: none; }
   #dragHandle {
     position: absolute;
@@ -594,27 +602,40 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     state.wordIdx = 0;
     const prev = $('prompterText').querySelector('.w.current');
     if (prev) prev.classList.remove('current');
-    $('prompterText').style.transform = state.mirrorX('translateY(0px)');
+    applyScrollTransform();
   }
   state.mirrorX = t => $('prompterText').classList.contains('mirrored') ? t + ' scaleX(-1)' : t;
+
+  // landscape mode is a ticker: text flows along X instead of scrolling up
+  const isTicker = () => rotMode !== 0;
+
+  function applyScrollTransform() {
+    const t = isTicker() ? `translateX(${-state.scrollY}px)` : `translateY(${-state.scrollY}px)`;
+    $('prompterText').style.transform = state.mirrorX(t);
+  }
 
   function scrollLoop(ts) {
     if (!state.scrolling) return;
     if (state.lastFrame) {
-      const dt = (ts - state.lastFrame) / 1000;
+      // cap the frame gap so the text never leaps after a stall
+      const dt = Math.min(0.1, (ts - state.lastFrame) / 1000);
       if (state.voiceMode) {
         // ease toward the position of the last spoken word
         state.scrollY += (state.voiceTargetY - state.scrollY) * Math.min(1, dt * 4);
       } else {
-        state.scrollY += state.speed * dt;
+        // a single flowing line has to move much faster than stacked lines
+        // to carry the same words-per-minute
+        state.scrollY += state.speed * (isTicker() ? 4 : 1) * dt;
       }
       const el = $('prompterText');
-      const max = el.scrollHeight - $('prompter').clientHeight * 0.15;
+      const max = isTicker()
+        ? el.scrollWidth - $('prompter').clientWidth * 0.3
+        : el.scrollHeight - $('prompter').clientHeight * 0.15;
       if (state.scrollY >= max) {
         state.scrollY = max;
         if (!state.voiceMode) setScrolling(false);
       }
-      el.style.transform = state.mirrorX(`translateY(${-state.scrollY}px)`);
+      applyScrollTransform();
     }
     state.lastFrame = ts;
     state.rafId = requestAnimationFrame(scrollLoop);
@@ -663,16 +684,24 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     screens.prompter.classList.toggle('rot', rotMode !== 0);
     $('rotBtn').classList.toggle('active-toggle', rotMode !== 0);
     localStorage.setItem(ROT_KEY, String(rotMode));
-    // start the first line inside the visible band, whatever its depth
-    $('prompterText').style.paddingTop = Math.round(p.clientHeight * 0.7) + 'px';
+    const pt = $('prompterText');
+    if (rotMode !== 0) {
+      // ticker: center the single line in the band, start it at the right edge
+      const fs = parseInt($('sizeSlider').value, 10) || 28;
+      const padTop = Math.max(0, Math.round((p.clientHeight - fs * 1.5) / 2));
+      pt.style.padding = `${padTop}px ${Math.round(p.clientWidth * 0.3)}px 0 ${p.clientWidth}px`;
+    } else {
+      pt.style.padding = ''; // back to the stylesheet's paragraph padding
+    }
   }
 
   $('rotBtn').onclick = () => {
     rotMode = rotMode === 0 ? 90 : rotMode === 90 ? 270 : 0;
     applyRotation();
+    resetScroll();
     toast(rotMode === 0 ? 'Portrait text'
-      : rotMode === 90 ? 'Landscape text — phone turned to the left'
-      : 'Landscape text — phone turned to the right');
+      : rotMode === 90 ? 'Ticker text — phone turned to the left'
+      : 'Ticker text — phone turned to the right');
   };
 
   function makeDraggable(el) {
@@ -706,13 +735,14 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   $('sizeSlider').oninput = e => {
     $('prompterText').style.fontSize = e.target.value + 'px';
     $('sizeVal').textContent = e.target.value;
+    applyRotation(); // re-center the ticker line for the new size
   };
 
   $('mirrorBtn').onclick = () => {
     const el = $('prompterText');
     el.classList.toggle('mirrored');
     $('mirrorBtn').classList.toggle('active-toggle');
-    el.style.transform = state.mirrorX(`translateY(${-state.scrollY}px)`);
+    applyScrollTransform();
     toast(el.classList.contains('mirrored') ? 'Mirror on (for glass teleprompters)' : 'Mirror off');
   };
 
@@ -745,7 +775,10 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     const prev = $('prompterText').querySelector('.w.current');
     if (prev) prev.classList.remove('current');
     el.classList.add('current');
-    const target = el.offsetTop - $('prompter').clientHeight * 0.12;
+    const p = $('prompter');
+    const target = isTicker()
+      ? el.offsetLeft - p.clientWidth * 0.25
+      : el.offsetTop - p.clientHeight * 0.12;
     if (target > state.voiceTargetY) state.voiceTargetY = target;
   }
 
