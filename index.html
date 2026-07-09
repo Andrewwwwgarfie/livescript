@@ -151,7 +151,28 @@
     background: linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55));
     -webkit-mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
     mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+    touch-action: none;
   }
+  #dragHandle {
+    position: absolute;
+    top: calc(60px + var(--safe-top) - 14px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 68px; height: 28px;
+    border-radius: 14px;
+    background: rgba(20,20,25,0.75);
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim);
+    font-size: 15px;
+    letter-spacing: 2px;
+    z-index: 6;
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #dragHandle:active { cursor: grabbing; color: var(--accent); }
   #prompterText {
     padding: 30vh 24px 40vh;
     font-size: 28px;
@@ -361,6 +382,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   </div>
 
   <div id="prompter"><div id="prompterText"></div></div>
+  <div id="dragHandle">≡</div>
   <div id="guideLine"></div>
 
   <div class="prompter-top">
@@ -597,8 +619,47 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   $('playPauseBtn').onclick = () => setScrolling(!state.scrolling);
   $('restartBtn').onclick = () => { resetScroll(); toast('Back to top'); };
 
-  // tap prompter to play/pause too
-  $('prompter').addEventListener('click', () => setScrolling(!state.scrolling));
+  // tap prompter to play/pause too (unless the tap was a drag)
+  $('prompter').addEventListener('click', () => { if (suppressTap) return; setScrolling(!state.scrolling); });
+
+  // ---------- draggable prompter position ----------
+  const POS_KEY = 'livescript.prompterTop';
+  let dragInfo = null, suppressTap = false;
+
+  function setPrompterTop(px, save = true) {
+    const p = $('prompter');
+    const top = Math.max(8, Math.min(window.innerHeight - 150, px));
+    p.style.top = top + 'px';
+    $('dragHandle').style.top = (top - 14) + 'px';
+    $('guideLine').style.top = (top + p.offsetHeight * 0.12) + 'px';
+    if (save) localStorage.setItem(POS_KEY, String(top / window.innerHeight));
+  }
+
+  function applyPrompterPos() {
+    const f = parseFloat(localStorage.getItem(POS_KEY));
+    if (!isNaN(f)) setPrompterTop(f * window.innerHeight, false);
+  }
+
+  function makeDraggable(el) {
+    el.addEventListener('pointerdown', e => {
+      dragInfo = { y: e.clientY, top: $('prompter').offsetTop, moved: false };
+      try { el.setPointerCapture(e.pointerId); } catch {}
+    });
+    el.addEventListener('pointermove', e => {
+      if (!dragInfo) return;
+      const dy = e.clientY - dragInfo.y;
+      if (Math.abs(dy) > 8) dragInfo.moved = true;
+      if (dragInfo.moved) setPrompterTop(dragInfo.top + dy);
+    });
+    const end = () => {
+      if (dragInfo && dragInfo.moved) { suppressTap = true; setTimeout(() => { suppressTap = false; }, 300); }
+      dragInfo = null;
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+  makeDraggable($('prompter'));
+  makeDraggable($('dragHandle'));
 
   // ---------- sliders ----------
   $('settingsBtn').onclick = () => $('sliders').classList.toggle('open');
@@ -791,6 +852,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     resetScroll();
     setScrolling(false);
     show('prompter');
+    applyPrompterPos();
     requestWakeLock();
     await startCamera();
   };

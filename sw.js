@@ -1,4 +1,4 @@
-const CACHE = 'livescript-v4';
+const CACHE = 'livescript-v5';
 const ASSETS = [
   '.',
   'index.html',
