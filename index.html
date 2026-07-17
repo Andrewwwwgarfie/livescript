@@ -571,6 +571,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
           facingMode: state.facing,
           width: { ideal: 1920 },
           height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: true,
       });
@@ -878,8 +879,12 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     await countdown(3);
     state.chunks = [];
     const mime = pickMime();
-    const opts = { videoBitsPerSecond: 8_000_000 };
+    const opts = {};
     if (mime) opts.mimeType = mime;
+    // Safari's mp4 recorder uses the hardware encoder and picks its own
+    // bitrate — forcing one can cause stutter on long takes. Only nudge
+    // the bitrate for webm (Chrome/Android) recorders.
+    if (mime.startsWith('video/webm')) opts.videoBitsPerSecond = 8_000_000;
     try {
       state.recorder = new MediaRecorder(state.stream, opts);
     } catch {
@@ -887,17 +892,31 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
       catch { toast('Recording not supported in this browser'); return; }
     }
     state.recorder.ondataavailable = e => { if (e.data.size) state.chunks.push(e.data); };
+    state.recorder.onerror = () => {
+      toast('Recording error — stopping');
+      stopRecording();
+    };
     state.recorder.onstop = () => {
-      const blob = new Blob(state.chunks, { type: state.recorder.mimeType });
+      const type = state.recorder.mimeType || mime || 'video/mp4';
+      const blob = new Blob(state.chunks, { type });
+      state.chunks = [];
+      if (!blob.size) {
+        toast('Recording failed — no video captured. Please try again.');
+        return;
+      }
       if (state.videoURL) URL.revokeObjectURL(state.videoURL);
       state.blob = blob;
       state.videoURL = URL.createObjectURL(blob);
-      state.blobExt = state.recorder.mimeType.includes('mp4') ? 'mp4' : 'webm';
-      $('playback').src = state.videoURL;
+      state.blobExt = type.includes('mp4') ? 'mp4' : 'webm';
+      const pb = $('playback');
+      pb.src = state.videoURL;
+      pb.load();
       setScrolling(false);
       show('review');
     };
-    state.recorder.start();
+    // hand over data every second: long takes stay stable and never end
+    // up as one giant chunk that iOS can fail to deliver at stop
+    state.recorder.start(1000);
     state.recording = true;
     $('recordBtn').classList.add('recording');
     startTimer();
