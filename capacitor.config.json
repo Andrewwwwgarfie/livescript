@@ -1,0 +1,10 @@
+{
+  "appId": "com.andrew.livescript",
+  "appName": "LiveScript",
+  "webDir": "www",
+  "backgroundColor": "#0d0d0f",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0d0d0f"
+  }
+}
