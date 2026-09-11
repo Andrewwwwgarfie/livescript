@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0d0d0f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -153,25 +153,6 @@
     mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
     touch-action: none;
   }
-  /* rotated 90° for reading while the phone is held landscape */
-  #prompter.rot90, #prompter.rot270 {
-    width: 100vh;
-    height: 56vw;
-    left: 50%;
-    right: auto;
-    top: 50% !important;
-  }
-  #prompter.rot90 { transform: translate(-50%, -50%) rotate(90deg); }
-  #prompter.rot270 { transform: translate(-50%, -50%) rotate(-90deg); }
-  /* landscape = ticker: one continuous line flowing sideways, fade at the ends */
-  #prompter.rot90, #prompter.rot270 {
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
-    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
-  }
-  #prompter.rot90 #prompterText, #prompter.rot270 #prompterText {
-    white-space: nowrap;
-  }
-  #prompterScreen.rot #dragHandle, #prompterScreen.rot #guideLine { display: none; }
   #dragHandle {
     position: absolute;
     top: calc(60px + var(--safe-top) - 14px);
@@ -193,7 +174,8 @@
   }
   #dragHandle:active { cursor: grabbing; color: var(--accent); }
   #prompterText {
-    padding: 30vh 24px 40vh;
+    padding: 24px 24px 35vh;
+    overflow-wrap: anywhere;
     font-size: 28px;
     font-weight: 700;
     line-height: 1.5;
@@ -363,6 +345,34 @@
     white-space: nowrap;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  button:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  button:disabled { opacity: .45; cursor: default; }
+  .screen { height: 100dvh; }
+  #editorScreen { max-width: 900px; margin: auto; }
+  #scriptInput { min-height: 100px; }
+  #toast { white-space: normal; width: max-content; max-width: 90vw; text-align: center; }
+  #captureStatus { position: absolute; top: calc(58px + var(--safe-top)); left: 12px; right: 12px; font-size: 13px; text-align: center; background: #000b; padding: 6px; border-radius: 8px; }
+  #prompter { top: calc(110px + var(--safe-top)); height: 38%; }
+  .sliders { max-height: 45dvh; overflow-y: auto; }
+  .slider-row input { min-width: 0; }
+  .slider-row label { width: 76px; }
+  select { min-width: 0; flex: 1; padding: 8px; color: var(--text); background: var(--surface-2); border: 1px solid #555; border-radius: 8px; font: inherit; }
+  .help { color: var(--text-dim); font-size: 14px; line-height: 1.4; }
+  #browserHelp { background: var(--surface); padding: 10px; border-radius: 8px; }
+  @media (orientation: landscape) and (max-height: 600px) {
+    .prompter-bottom { left: auto; right: env(safe-area-inset-right, 0px); width: 90px; top: 60px; bottom: var(--safe-bottom); padding: 4px 8px; }
+    .controls-row { flex-direction: column; height: 100%; gap: 4px; }
+    .ctrl-btn { width: 44px; height: 44px; flex-shrink: 0; }
+    #recordBtn { width: 60px; height: 60px; flex-shrink: 0; }
+    #recordBtn .inner { width: 46px; height: 46px; }
+    #recordBtn.recording .inner { width: 26px; height: 26px; }
+    #prompter { right: 100px; height: calc(100% - 126px); }
+    .sliders { position: absolute; right: 90px; bottom: 8px; width: min(380px, 65vw); max-height: calc(100dvh - 80px); }
+    #captureStatus { right: 100px; }
+    #editorScreen { overflow-y: auto; }
+    #scriptInput { flex: none; height: 130px; }
+  }
 </style>
 </head>
 <body>
@@ -377,7 +387,7 @@
     <button class="btn-ghost" id="newScriptBtn">+ New</button>
   </div>
 
-  <div id="savedList"></div>
+  <div id="savedList"></div><p id="browserHelp" class="help" hidden>For reliable camera recording, open this link in Safari or Chrome using the browser menu. In-app browsers such as Messenger may restrict recording or saving.</p>
 
   <input id="scriptTitle" type="text" placeholder="Script title" maxlength="60">
 
@@ -400,6 +410,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     <div id="camError">Camera unavailable.<br>Check browser permissions and reload.<br><br>The prompter still works — text scrolls over a black background.</div>
   </div>
 
+  <div id="captureStatus" role="status">Camera starting…</div>
   <div id="prompter"><div id="prompterText"></div></div>
   <div id="dragHandle">≡</div>
   <div id="guideLine"></div>
@@ -409,20 +420,27 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     <div id="timer">00:00</div>
     <div style="display:flex; gap:8px;">
       <button class="icon-btn" id="voiceBtn" title="Voice-paced scrolling">🎤</button>
-      <button class="icon-btn" id="rotBtn" title="Rotate text for landscape">↻</button>
+      <button class="icon-btn" id="rotBtn" title="Landscape recording guidance">16:9</button>
       <button class="icon-btn" id="flipBtn" title="Flip camera">🔄</button>
     </div>
   </div>
 
   <div class="prompter-bottom">
     <div class="sliders" id="sliders">
+      <div class="slider-row"><label for="formatSelect">Format</label><select id="formatSelect"><option value="auto">Match device orientation</option><option value="landscape">16:9 landscape</option><option value="portrait">9:16 portrait</option></select></div>
+      <div class="slider-row"><label for="qualitySelect">Quality</label><select id="qualitySelect"><option value="1080">1080p</option><option value="2160">4K if supported</option><option value="720">720p / smaller file</option></select></div>
+      <div class="slider-row"><label for="fpsSelect">Frame rate</label><select id="fpsSelect"><option value="30">30 fps</option><option value="60">60 fps if supported</option></select></div>
+      <div class="slider-row"><label for="micSelect">Microphone</label><select id="micSelect"><option value="">Device default</option></select></div>
+      <div class="slider-row" id="zoomRow" hidden><label for="zoomSlider">Zoom</label><input type="range" id="zoomSlider" step="0.1" aria-label="Camera zoom"></div>
+      <button class="btn-ghost" id="retryBtn">Apply settings / retry camera</button>
+      <p class="help">Text stays out of your video. Capture quality depends on your browser and camera. Use your phone’s browser permissions to allow camera and microphone.</p>
       <div class="slider-row">
-        <label>Speed</label>
+        <label for="speedSlider">Speed</label>
         <input type="range" id="speedSlider" min="10" max="120" value="45">
         <span id="speedVal">45</span>
       </div>
       <div class="slider-row">
-        <label>Text size</label>
+        <label for="sizeSlider">Text size</label>
         <input type="range" id="sizeSlider" min="18" max="48" value="28">
         <span id="sizeVal">28</span>
       </div>
@@ -449,7 +467,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   </div>
 </div>
 
-<div id="toast"></div>
+<div id="toast" role="status"></div>
 
 <script>
 (() => {
@@ -499,16 +517,17 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   // ---------- script storage ----------
   const STORE_KEY = 'livescript.scripts';
   function loadScripts() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+    try { const list = JSON.parse(localStorage.getItem(STORE_KEY)); return Array.isArray(list) ? list.filter(s => s && typeof s.id === 'string' && typeof s.text === 'string' && typeof s.title === 'string') : []; }
     catch { return []; }
   }
-  function saveScripts(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+  function saveScripts(list) { try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); } catch { toast('Storage unavailable — copy your script before leaving'); } }
 
   function persistCurrent() {
     const title = $('scriptTitle').value.trim();
     const text = $('scriptInput').value;
     if (!text.trim()) return;
     let list = loadScripts();
+    if (state.currentScriptId && !list.some(x => x.id === state.currentScriptId)) state.currentScriptId = null;
     if (state.currentScriptId) {
       const s = list.find(x => x.id === state.currentScriptId);
       if (s) { s.title = title || 'Untitled'; s.text = text; s.updated = Date.now(); }
@@ -530,6 +549,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
       b.className = 'saved-chip' + (s.id === state.currentScriptId ? ' selected' : '');
       b.textContent = s.title;
       b.onclick = () => {
+        clearTimeout(autosave); persistCurrent();
         state.currentScriptId = s.id;
         $('scriptTitle').value = s.title;
         $('scriptInput').value = s.text;
@@ -561,37 +581,80 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   };
 
   // ---------- camera ----------
+  let cameraGeneration = 0;
+  let cameraBusy = false;
+  let preparing = false;
+  let takeToken = 0;
+  function captureSettings() {
+    const portrait = $('formatSelect').value === 'portrait' || ($('formatSelect').value === 'auto' && innerHeight > innerWidth);
+    const short = +$('qualitySelect').value;
+    return { facingMode: { ideal: state.facing }, width: { ideal: portrait ? short : Math.round(short * 16 / 9) }, height: { ideal: portrait ? Math.round(short * 16 / 9) : short }, aspectRatio: { ideal: portrait ? 9 / 16 : 16 / 9 }, frameRate: { ideal: +$('fpsSelect').value }, resizeMode: { ideal: 'none' } };
+  }
+  function updateCaptureStatus() {
+    const track = state.stream?.getVideoTracks()[0];
+    if (!track) return;
+    const s = track.getSettings();
+    const wanted = $('formatSelect').value;
+    const ratio = s.width / s.height;
+    const mismatch = wanted !== 'auto' && Math.abs(ratio - (wanted === 'portrait' ? 9/16 : 16/9)) > .08;
+    $('captureStatus').textContent = `${s.width || '?'} × ${s.height || '?'} · ${Math.round(s.frameRate || 0)} fps · Text excluded` + (mismatch ? ' · Turn device; requested format unavailable' : '');
+  }
   async function startCamera() {
+    if (state.recording || preparing || cameraBusy) return;
     stopCamera();
+    const generation = cameraGeneration;
+    cameraBusy = true;
+    $('recordBtn').disabled = true;
+    $('captureStatus').textContent = 'Camera starting…';
     try {
-      // only ask for a resolution — no aspect/shape constraints, so the
-      // device picks a native format with its full field of view (no crop)
-      state.stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: state.facing,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30, max: 30 },
-        },
-        audio: true,
-      });
+      if (!navigator.mediaDevices?.getUserMedia) throw { name: 'Unsupported' };
+      const stream = await navigator.mediaDevices.getUserMedia({ video: captureSettings(), audio: $('micSelect').value ? { deviceId: { exact: $('micSelect').value } } : true });
+      if (generation !== cameraGeneration) { stream.getTracks().forEach(t => t.stop()); return; }
+      state.stream = stream;
       const cam = $('camera');
-      cam.srcObject = state.stream;
+      cam.srcObject = stream;
       cam.classList.toggle('rear', state.facing === 'environment');
+      await cam.play();
+      if (generation !== cameraGeneration) return;
       $('camError').style.display = 'none';
+      const track = stream.getVideoTracks()[0];
+      track.onended = () => { if (state.recording) stopRecording(); toast('Camera disconnected — retry camera'); };
+      const caps = track.getCapabilities?.() || {};
+      $('zoomRow').hidden = !caps.zoom;
+      $('zoomRow').style.display = caps.zoom ? 'flex' : 'none';
+      if (caps.zoom) { $('zoomSlider').min = caps.zoom.min; $('zoomSlider').max = caps.zoom.max; $('zoomSlider').step = caps.zoom.step || .1; $('zoomSlider').value = track.getSettings().zoom || caps.zoom.min; }
+      updateCaptureStatus();
+      try {
+        const selected = $('micSelect').value;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        $('micSelect').replaceChildren(new Option('Device default', ''));
+        devices.filter(d => d.kind === 'audioinput').forEach((d,i) => $('micSelect').add(new Option(d.label || `Microphone ${i+1}`, d.deviceId)));
+        $('micSelect').value = selected;
+      } catch {}
     } catch (e) {
+      if (generation !== cameraGeneration) return;
+      stopCamera();
+      const messages = { NotAllowedError: 'Allow camera and microphone in your browser’s site settings, then tap retry.', NotFoundError: 'No camera or microphone found. Connect a device and retry.', NotReadableError: 'Camera is busy. Close other camera apps and retry.', OverconstrainedError: 'These settings are unavailable. Try 1080p / 30 fps and the default microphone.', Unsupported: 'Camera needs HTTPS and a supported browser. Open this page in Safari or Chrome.' };
+      $('camError').textContent = messages[e.name] || 'Could not start the camera. Open in Safari or Chrome and retry.';
       $('camError').style.display = 'flex';
+      $('captureStatus').textContent = 'Rehearsal only — camera unavailable';
+    } finally {
+      cameraBusy = false;
+      $('recordBtn').disabled = !state.stream || !window.MediaRecorder;
     }
   }
   function stopCamera() {
-    if (state.stream) {
-      state.stream.getTracks().forEach(t => t.stop());
-      state.stream = null;
-    }
+    cameraGeneration++;
+    if (state.stream) { state.stream.getTracks().forEach(t => { t.onended = null; t.stop(); }); state.stream = null; }
+    $('camera').srcObject = null;
   }
-
+  $('retryBtn').onclick = startCamera;
+  $('zoomSlider').oninput = async e => {
+    try { await state.stream?.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: +e.target.value }] }); }
+    catch { toast('Zoom unavailable at this setting'); }
+  };
   $('flipBtn').onclick = () => {
-    if (state.recording) { toast('Stop recording first'); return; }
+    if (state.recording || preparing || cameraBusy) return;
     state.facing = state.facing === 'user' ? 'environment' : 'user';
     startCamera();
   };
@@ -607,11 +670,9 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   }
   state.mirrorX = t => $('prompterText').classList.contains('mirrored') ? t + ' scaleX(-1)' : t;
 
-  // landscape mode is a ticker: text flows along X instead of scrolling up
-  const isTicker = () => rotMode !== 0;
 
   function applyScrollTransform() {
-    const t = isTicker() ? `translateX(${-state.scrollY}px)` : `translateY(${-state.scrollY}px)`;
+    const t = `translateY(${-state.scrollY}px)`;
     $('prompterText').style.transform = state.mirrorX(t);
   }
 
@@ -624,25 +685,23 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
         // ease toward the position of the last spoken word
         state.scrollY += (state.voiceTargetY - state.scrollY) * Math.min(1, dt * 4);
       } else {
-        // a single flowing line has to move much faster than stacked lines
-        // to carry the same words-per-minute
-        state.scrollY += state.speed * (isTicker() ? 4 : 1) * dt;
+        state.scrollY += state.speed * dt;
       }
       const el = $('prompterText');
-      const max = isTicker()
-        ? el.scrollWidth - $('prompter').clientWidth * 0.3
-        : el.scrollHeight - $('prompter').clientHeight * 0.15;
+      const max = Math.max(0, el.scrollHeight - $('prompter').clientHeight * 0.15);
       if (state.scrollY >= max) {
         state.scrollY = max;
         if (!state.voiceMode) setScrolling(false);
       }
       applyScrollTransform();
     }
+    if (!state.scrolling) return;
     state.lastFrame = ts;
     state.rafId = requestAnimationFrame(scrollLoop);
   }
 
   function setScrolling(on) {
+    if (state.rafId) cancelAnimationFrame(state.rafId);
     state.scrolling = on;
     state.lastFrame = 0;
     $('playPauseBtn').textContent = on ? '⏸' : '▶️';
@@ -662,52 +721,39 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
 
   function setPrompterTop(px, save = true) {
     const p = $('prompter');
-    const top = Math.max(8, Math.min(window.innerHeight - 150, px));
+    const top = Math.max(110, Math.min(window.innerHeight - p.offsetHeight - 100, px));
     p.style.top = top + 'px';
     $('dragHandle').style.top = (top - 14) + 'px';
     $('guideLine').style.top = (top + p.offsetHeight * 0.12) + 'px';
-    if (save) localStorage.setItem(POS_KEY, String(top / window.innerHeight));
+    if (save) { try { localStorage.setItem(POS_KEY, String(top / window.innerHeight)); } catch {} }
   }
 
   function applyPrompterPos() {
-    const f = parseFloat(localStorage.getItem(POS_KEY));
+    let f; try { f = parseFloat(localStorage.getItem(POS_KEY)); } catch {}
     if (!isNaN(f)) setPrompterTop(f * window.innerHeight, false);
   }
 
-  // ---------- text rotation for landscape filming ----------
-  const ROT_KEY = 'livescript.rotation';
-  let rotMode = parseInt(localStorage.getItem(ROT_KEY), 10) || 0; // 0, 90 or 270
-
+  // Text follows viewport orientation and always remains wrapped paragraphs.
   function applyRotation() {
-    const p = $('prompter');
-    p.classList.toggle('rot90', rotMode === 90);
-    p.classList.toggle('rot270', rotMode === 270);
-    screens.prompter.classList.toggle('rot', rotMode !== 0);
-    $('rotBtn').classList.toggle('active-toggle', rotMode !== 0);
-    localStorage.setItem(ROT_KEY, String(rotMode));
-    const pt = $('prompterText');
-    if (rotMode !== 0) {
-      // ticker: center the single line in the band, start it at the right edge
-      const fs = parseInt($('sizeSlider').value, 10) || 28;
-      const padTop = Math.max(0, Math.round((p.clientHeight - fs * 1.5) / 2));
-      pt.style.padding = `${padTop}px ${Math.round(p.clientWidth * 0.3)}px 0 ${p.clientWidth}px`;
-    } else {
-      pt.style.padding = ''; // back to the stylesheet's paragraph padding
-    }
+    $('prompterText').style.padding = '';
+    setPrompterTop($('prompter').offsetTop, false);
   }
-
   $('rotBtn').onclick = () => {
-    rotMode = rotMode === 0 ? 90 : rotMode === 90 ? 270 : 0;
-    applyRotation();
-    resetScroll();
-    toast(rotMode === 0 ? 'Portrait text'
-      : rotMode === 90 ? 'Ticker text — phone turned to the left'
-      : 'Ticker text — phone turned to the right');
+    $('sliders').classList.add('open');
+    toast('Choose a format, turn your device, then apply settings. Text stays in paragraphs.');
   };
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    applyRotation();
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (state.stream && !state.recording && !preparing) startCamera();
+      else if (state.recording) toast('Keep the device in its starting orientation until you stop');
+    }, 400);
+  });
 
   function makeDraggable(el) {
     el.addEventListener('pointerdown', e => {
-      if (rotMode !== 0) return; // rotated panel is centered, not draggable
       dragInfo = { y: e.clientY, top: $('prompter').offsetTop, moved: false };
       try { el.setPointerCapture(e.pointerId); } catch {}
     });
@@ -736,7 +782,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   $('sizeSlider').oninput = e => {
     $('prompterText').style.fontSize = e.target.value + 'px';
     $('sizeVal').textContent = e.target.value;
-    applyRotation(); // re-center the ticker line for the new size
+    applyRotation();
   };
 
   $('mirrorBtn').onclick = () => {
@@ -777,9 +823,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     if (prev) prev.classList.remove('current');
     el.classList.add('current');
     const p = $('prompter');
-    const target = isTicker()
-      ? el.offsetLeft - p.clientWidth * 0.25
-      : el.offsetTop - p.clientHeight * 0.12;
+    const target = el.offsetTop - p.clientHeight * 0.12;
     if (target > state.voiceTargetY) state.voiceTargetY = target;
   }
 
@@ -839,7 +883,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     setScrolling(false);
   }
 
-  $('voiceBtn').onclick = () => state.voiceMode ? stopVoice() : startVoice();
+  $('voiceBtn').onclick = () => { if (state.recording || preparing) return; state.voiceMode ? stopVoice() : startVoice(); };
 
   // ---------- recording ----------
   function pickMime() {
@@ -861,12 +905,13 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     $('timer').textContent = '00:00';
   }
 
-  function countdown(n) {
+  function countdown(n, token) {
     return new Promise(res => {
       const el = $('countdown');
       el.style.display = 'flex';
+      el.setAttribute('aria-label', 'Countdown. Tap to cancel');
       const tick = () => {
-        if (n === 0) { el.style.display = 'none'; res(); return; }
+        if (n === 0 || token !== takeToken) { el.style.display = 'none'; res(token === takeToken); return; }
         el.textContent = n--;
         setTimeout(tick, 1000);
       };
@@ -875,21 +920,25 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   }
 
   async function startRecording() {
-    if (!state.stream) { toast('No camera — cannot record'); return; }
-    await countdown(3);
+    if (!state.stream || cameraBusy || preparing || state.recording) return;
+    if (!window.MediaRecorder) { toast('Recording unavailable — use Safari or Chrome'); return; }
+    preparing = true;
+    lockCapture(true);
+    stopVoice();
+    const token = ++takeToken;
+    if (!await countdown(3, token)) { preparing = false; lockCapture(false); return; }
+    preparing = false;
+    if (!state.stream) { lockCapture(false); return; }
     state.chunks = [];
     const mime = pickMime();
     const opts = {};
     if (mime) opts.mimeType = mime;
-    // Safari's mp4 recorder uses the hardware encoder and picks its own
-    // bitrate — forcing one can cause stutter on long takes. Only nudge
-    // the bitrate for webm (Chrome/Android) recorders.
-    if (mime.startsWith('video/webm')) opts.videoBitsPerSecond = 8_000_000;
+    // Let the browser encoder select its bitrate for the negotiated resolution.
     try {
       state.recorder = new MediaRecorder(state.stream, opts);
     } catch {
       try { state.recorder = new MediaRecorder(state.stream); }
-      catch { toast('Recording not supported in this browser'); return; }
+      catch { lockCapture(false); toast('Recording not supported in this browser'); return; }
     }
     state.recorder.ondataavailable = e => { if (e.data.size) state.chunks.push(e.data); };
     state.recorder.onerror = () => {
@@ -897,6 +946,8 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
       stopRecording();
     };
     state.recorder.onstop = () => {
+      state.recording = false; lockCapture(false); stopTimer(); $('recordBtn').classList.remove('recording');
+      stopVoice(); setScrolling(false);
       const type = state.recorder.mimeType || mime || 'video/mp4';
       const blob = new Blob(state.chunks, { type });
       state.chunks = [];
@@ -912,11 +963,12 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
       pb.src = state.videoURL;
       pb.load();
       setScrolling(false);
+      stopCamera(); releaseWakeLock();
       show('review');
     };
     // hand over data every second: long takes stay stable and never end
     // up as one giant chunk that iOS can fail to deliver at stop
-    state.recorder.start(1000);
+    try { state.recorder.start(1000); } catch { lockCapture(false); toast('Could not start recording — retry camera'); return; }
     state.recording = true;
     $('recordBtn').classList.add('recording');
     startTimer();
@@ -924,6 +976,9 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     setScrolling(true);
   }
 
+  function lockCapture(locked) {
+    ['flipBtn','retryBtn','formatSelect','qualitySelect','fpsSelect','micSelect','zoomSlider','voiceBtn'].forEach(id => $(id).disabled = locked);
+  }
   function stopRecording() {
     if (state.recorder && state.recorder.state !== 'inactive') state.recorder.stop();
     state.recording = false;
@@ -931,7 +986,9 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     stopTimer();
   }
 
-  $('recordBtn').onclick = () => state.recording ? stopRecording() : startRecording();
+  $('recordBtn').onclick = () => { if (preparing) { takeToken++; return; } state.recording ? stopRecording() : startRecording(); };
+
+  $('countdown').onclick = () => { takeToken++; };
 
   // ---------- navigation ----------
   $('startBtn').onclick = async () => {
@@ -947,7 +1004,8 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   };
 
   $('backBtn').onclick = () => {
-    if (state.recording) stopRecording();
+    if (state.recording) { stopRecording(); return; }
+    takeToken++;
     stopVoice();
     setScrolling(false);
     stopCamera();
@@ -958,6 +1016,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   $('discardBtn').onclick = () => {
     $('playback').pause();
     show('prompter');
+    requestWakeLock();
     startCamera();
   };
 
@@ -970,7 +1029,7 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     const a = document.createElement('a');
     a.href = state.videoURL;
     a.download = videoFileName();
-    a.click();
+    document.body.appendChild(a); a.click(); a.remove();
     toast('Saving video…');
   };
 
@@ -996,13 +1055,14 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
     if (state.wakeLock) { state.wakeLock.release().catch(() => {}); state.wakeLock = null; }
   }
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { takeToken++; if (state.recording) stopRecording(); setScrolling(false); stopVoice(); releaseWakeLock(); }
     if (document.visibilityState === 'visible' && screens.prompter.classList.contains('active')) requestWakeLock();
   });
 
   // keyboard shortcuts (desktop)
   document.addEventListener('keydown', e => {
     if (!screens.prompter.classList.contains('active')) return;
-    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    if (['TEXTAREA','INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return;
     if (e.code === 'Space') { e.preventDefault(); setScrolling(!state.scrolling); }
     if (e.code === 'ArrowUp') { state.speed = Math.min(120, state.speed + 5); $('speedSlider').value = state.speed; $('speedVal').textContent = state.speed; }
     if (e.code === 'ArrowDown') { state.speed = Math.max(10, state.speed - 5); $('speedSlider').value = state.speed; $('speedVal').textContent = state.speed; }
@@ -1013,6 +1073,13 @@ Tip: short sentences read best. Add blank lines for natural pauses."></textarea>
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+  document.querySelectorAll('button[title]').forEach(b => b.setAttribute('aria-label', b.title));
+  $('scriptTitle').setAttribute('aria-label', 'Script title');
+  $('scriptInput').setAttribute('aria-label', 'Your script');
+  $('browserHelp').hidden = !/FBAN|FBAV|Instagram|Messenger|Line\//i.test(navigator.userAgent);
+  let autosave;
+  ['scriptInput', 'scriptTitle'].forEach(id => $(id).addEventListener('input', () => { clearTimeout(autosave); autosave = setTimeout(persistCurrent, 400); }));
+  window.addEventListener('pagehide', () => { persistCurrent(); takeToken++; stopCamera(); });
   renderSaved();
   const last = loadScripts()[0];
   if (last) {
